@@ -1,56 +1,26 @@
-# =============================================================================
-# Base Image
-# =============================================================================
-# Miniforge (Ubuntu + mamba + conda environments)
-# https://hub.docker.com/r/condaforge/miniforge3/tags
-# Use fixed version (vs. latest) to avoid freq rebuild
-FROM condaforge/miniforge3:26.1.1-2
+# -h/--help
+# Usage: docker build -t rkllama-nocache -f Dockerfile .
+# Purpose: Rebuilds ghcr.io/notpunchnox/rkllama:main with prompt-cache
+#          writing disabled at the source level. RKLLAMA has no config
+#          flag to turn off cache writes (only a retention/cleanup
+#          setting), so this patches the vendored rkllm.py directly:
+#          save_prompt_cache is forced to 0 instead of 1, meaning the
+#          NPU inference call is told never to persist a cache file.
+#          Cache *loading* is left untouched - on a cache miss it will
+#          still log the existing "Not found expected prompt cache
+#          file" warning, which is expected and harmless.
+# Example: docker build -t rkllama-nocache -f Dockerfile .
+#          then reference "image: rkllama-nocache" in docker-compose.yml
 
-# =============================================================================
-# Environment Variables  
-# =============================================================================
-ENV ENABLE_CRON=false
-ENV TZ=America/Chicago
-ENV FLASK_ENV=production
+# as of 9/6/2026, sha256:683e6a15263a167af380d5fdc5bdfa061755bcdacbff7be2cb7194f3d3bdcf70
+FROM ghcr.io/notpunchnox/rkllama:main
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# =============================================================================
-# System Dependencies
-# =============================================================================
-RUN apt-get update && \
-    if [ "$ENABLE_CRON" = "true" ]; then \
-        apt-get install -y --no-install-recommends tzdata cron; \
-    else \
-        apt-get install -y --no-install-recommends tzdata; \
-    fi && \
-    ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
-    dpkg-reconfigure -f noninteractive tzdata && \
-    rm -rf /var/lib/apt/lists/*
-
-# =============================================================================
-# Application Setup & Python Package Installation
-# =============================================================================
-WORKDIR /app
-COPY environment.yml .
-
-RUN mamba env create -f environment.yml && \
-    echo "source activate app" >> ~/.bashrc && \
-    mamba clean -afy
-
-ENV PATH=/opt/conda/envs/app/bin:$PATH
-
-# =============================================================================
-# Application Files
-# =============================================================================
-COPY . .
-
-RUN if [ "$ENABLE_CRON" = "true" ]; then crontab /app/crontab; fi
-
-# =============================================================================
-# Container Configuration
-# =============================================================================
-# Expose port for Flask application
-EXPOSE 5000
-CMD ["bash", "/app/start.sh"]
+# Disable prompt cache writing: force save_prompt_cache = 0 instead of 1.
+# Matched by exact text so the build fails loudly (via the final grep
+# check) if the upstream image changes this line, rather than silently
+# doing nothing.
+RUN set -eu; \
+    FILE=/opt/venv/lib/python3.12/site-packages/rkllama/api/rkllm.py; \
+    grep -q "self.prompt_cache_params.save_prompt_cache = 1" "$FILE"; \
+    sed -i 's/self\.prompt_cache_params\.save_prompt_cache = 1/self.prompt_cache_params.save_prompt_cache = 0/' "$FILE"; \
+    grep -q "self.prompt_cache_params.save_prompt_cache = 0" "$FILE"
