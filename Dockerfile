@@ -12,6 +12,7 @@
 # Example: docker build -t rkllama-nocache -f Dockerfile .
 #          then reference "image: rkllama-nocache" in docker-compose.yml
 
+# rkllama in general backward version compatible
 # as of 9/6/2026, sha256:683e6a15263a167af380d5fdc5bdfa061755bcdacbff7be2cb7194f3d3bdcf70
 FROM ghcr.io/notpunchnox/rkllama:main
 
